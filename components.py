@@ -1,19 +1,62 @@
-def get_flip_card_html(front_text, back_image_url=None, no_image_text="尚無照片"):
+import json
+
+def get_flip_card_html(front_text, back_image_urls=None, no_image_text="尚無照片"):
     """
     Generates HTML and CSS for a click-to-flip card.
-    If back_image_url is provided, it displays the image on the back.
+    If back_image_urls is provided (a list), it displays a random image on the back and randomizes on flip.
     Otherwise, it displays the no_image_text.
     """
     
-    # We will generate a unique ID for each card to ensure JS toggles the right one.
+    # We will generate a unique ID for each card and image to ensure JS toggles the right one.
     import uuid
     card_id = f"card_{uuid.uuid4().hex}"
+    img_id = f"img_{uuid.uuid4().hex}"
     
-    back_content = f"""
-        <img src="{back_image_url}" alt="{front_text}" class="card-image" />
-    """ if back_image_url else f"""
-        <div class="no-image-text">{no_image_text}</div>
-    """
+    urls = back_image_urls if back_image_urls else []
+    
+    if not urls:
+        back_content = f'<div class="no-image-text">{no_image_text}</div>'
+        script_content = f"""
+        <script>
+            function flipCard(cardId) {{
+                var card = document.getElementById(cardId);
+                card.classList.toggle('is-flipped');
+            }}
+        </script>
+        """
+    else:
+        back_content = f'<img id="{img_id}" src="" alt="{front_text}" class="card-image" />'
+        urls_json = json.dumps(urls)
+        script_content = f"""
+        <script>
+            var urls = {urls_json};
+            var imgElement = document.getElementById('{img_id}');
+            
+            function getRandomUrl() {{
+                return urls[Math.floor(Math.random() * urls.length)];
+            }}
+            
+            // Set first random image on load
+            if(urls.length > 0) {{
+                imgElement.src = getRandomUrl();
+            }}
+
+            function flipCard(cardId) {{
+                var card = document.getElementById(cardId);
+                var isFlipped = card.classList.contains('is-flipped');
+                
+                if (isFlipped) {{
+                    card.classList.remove('is-flipped');
+                    // Change the image while the back is facing away (halfway through the 0.6s animation)
+                    setTimeout(function() {{
+                        imgElement.src = getRandomUrl();
+                    }}, 300);
+                }} else {{
+                    card.classList.add('is-flipped');
+                }}
+            }}
+        </script>
+        """
 
     # We use a pure HTML/CSS/JS structure that can be embedded via st.components.v1.html
     html_content = f"""
@@ -99,12 +142,7 @@ def get_flip_card_html(front_text, back_image_url=None, no_image_text="尚無照
             </div>
         </div>
 
-        <script>
-            function flipCard(cardId) {{
-                var card = document.getElementById(cardId);
-                card.classList.toggle('is-flipped');
-            }}
-        </script>
+        {script_content}
     </body>
     </html>
     """
