@@ -1,0 +1,11 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Streamlit secrets (VERY IMPORTANT)
+.streamlit/secrets.toml
+.env
+
+# MacOS
+.DS_Store
