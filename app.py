@@ -36,7 +36,12 @@ try:
             api_secret=os.getenv("API_SECRET"),
             secure=True
         )
-    has_credentials = True
+        
+    config = cloudinary.config()
+    if not config.api_key or config.api_key == "YOUR_API_KEY":
+        has_credentials = False
+    else:
+        has_credentials = True
 except Exception as e:
     has_credentials = False
 
@@ -48,37 +53,39 @@ def init_session_state():
 init_session_state()
 
 # --------- Backend Helper Functions ---------
-def get_random_image_by_tag(tag, force_refresh=False):
-    """從 Cloudinary 依據標籤找出隨機照片"""
+def get_all_images_by_tag(tag, force_refresh=False):
+    """從 Cloudinary 依據標籤找出所有照片(最多50張)"""
     if not has_credentials:
-        return None
+        return []
         
-    # 如果且沒有強制更新且已經有快取，就使用快取
     if not force_refresh and tag in st.session_state.image_cache:
+        # 兼容之前快取只存字串或單一 dict 的情況
         cached = st.session_state.image_cache[tag]
-        # 兼容之前快取只存字串的情況
-        if isinstance(cached, str):
-            return {'url': cached, 'public_id': None}
-        return cached
+        if isinstance(cached, list):
+            return cached
+        elif isinstance(cached, dict) and 'url' in cached:
+            return [cached]
+        elif isinstance(cached, str):
+            return [{'url': cached, 'public_id': None}]
+        return cached if isinstance(cached, list) else []
         
     try:
         # Search API 預設抓近期 50 張有該標籤的照片
         result = cloudinary.Search().expression(f"tags={tag} AND resource_type:image").max_results(50).execute()
         images = result.get('resources', [])
         
-        if not images:
-            st.session_state.image_cache[tag] = None
-            return None
+        data_list = []
+        for img in images:
+            data_list.append({
+                'url': img.get('secure_url'), 
+                'public_id': img.get('public_id')
+            })
             
-        random_image = random.choice(images)
-        url = random_image.get('secure_url')
-        pid = random_image.get('public_id')
-        data = {'url': url, 'public_id': pid}
-        st.session_state.image_cache[tag] = data
-        return data
+        st.session_state.image_cache[tag] = data_list
+        return data_list
     except Exception as e:
         st.warning(f"取得照片時發生錯誤: {e}")
-        return None
+        return []
 
 # --------- UI Layout ---------
 st.title("📷 攝影構圖分類與圖庫")
@@ -86,9 +93,9 @@ st.title("📷 攝影構圖分類與圖庫")
 if not has_credentials:
     st.error("⚠️ 尚未設定 Cloudinary 憑證。請確保 `.streamlit/secrets.toml` 或 `.env` 中已提供正確的金鑰。")
 
-tab1, tab2 = st.tabs(["🖼️ 構圖藝廊 (Gallery)", "📤 上傳照片 (Upload)"])
+tab1, tab2, tab3 = st.tabs(["🖼️ 構圖藝廊 (Gallery)", "🗂️ 照片管理 (Manage)", "📤 上傳照片 (Upload)"])
 
-with tab2:
+with tab3:
     st.header("上傳新的照片並分類")
     
     uploaded_file = st.file_uploader("請選擇一張照片...", type=["jpg", "png", "jpeg", "webp"])
@@ -115,16 +122,44 @@ with tab2:
                     st.success(f"✅ 上傳成功！已歸類為：{selected_composition}")
                     st.image(response.get('secure_url'), caption="您上傳的照片", use_container_width=True)
                     
-                    # 清除該標籤的快取，讓下次看藝廊能有機會抽到新圖
+                    # 清除該標籤的快取，讓下次能抓到新圖
                     if tag_name in st.session_state.image_cache:
                         del st.session_state.image_cache[tag_name]
                         
                 except Exception as e:
                     st.error(f"❌ 上傳失敗: {e}")
 
+with tab2:
+    st.header("管理圖庫照片")
+    manage_category = st.selectbox("選擇要管理的構圖分類：", get_display_names(), key="manage_category")
+    manage_tag = get_tag_name(manage_category)
+    
+    col_a, col_b = st.columns([1, 4])
+    with col_a:
+        if st.button("🔄 重新載入"):
+            get_all_images_by_tag(manage_tag, force_refresh=True)
+            st.rerun()
+            
+    images = get_all_images_by_tag(manage_tag)
+    if not images:
+        st.info("此分類尚無照片。")
+    else:
+        st.write(f"共找到 {len(images)} 張照片：")
+        manage_cols = st.columns(4)
+        for idx, img_data in enumerate(images):
+            with manage_cols[idx % 4]:
+                st.image(img_data['url'], use_container_width=True)
+                if st.button("🗑️ 刪除", key=f"del_{img_data['public_id']}", use_container_width=True):
+                    try:
+                        cloudinary.uploader.destroy(img_data['public_id'])
+                        get_all_images_by_tag(manage_tag, force_refresh=True)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"刪除失敗: {e}")
+
 with tab1:
     st.header("探索各種攝影構圖")
-    st.write("點擊下方的卡片，即可揭曉該構圖的照片！")
+    st.write("點擊下方的卡片，每次翻面都會自動給您隨機的驚喜！")
     
     categories = get_display_names()
     
@@ -139,36 +174,16 @@ with tab1:
                 tag_name = get_tag_name(display_name)
                 
                 with col:
-                    # 取得顯示用照片
-                    img_data = get_random_image_by_tag(tag_name)
-                    img_url = img_data['url'] if img_data else None
-                    public_id = img_data.get('public_id') if img_data else None
+                    # 取得該標籤的所有照片 URLs
+                    img_data_list = get_all_images_by_tag(tag_name)
+                    urls = [img['url'] for img in img_data_list] if img_data_list else []
                     
-                    # 產生翻牌卡的 HTML
+                    # 產生翻牌卡的 HTML，傳入 urls 陣列交由前端隨機抽取
                     card_html = get_flip_card_html(
                         front_text=display_name, 
-                        back_image_url=img_url, 
+                        back_image_urls=urls, 
                         no_image_text="尚無照片"
                     )
                     
                     # 透過 st_components 渲染在畫面上
                     st_components.html(card_html, height=320)
-                    
-                    # 提供換一張與刪除的功能
-                    btn_col1, btn_col2 = st.columns(2)
-                    with btn_col1:
-                        if st.button(f"🔄 換一張", key=f"refresh_{tag_name}", use_container_width=True):
-                            # 強制更新快取並重新整理畫面
-                            get_random_image_by_tag(tag_name, force_refresh=True)
-                            st.rerun()
-                    with btn_col2:
-                        # 只有當下有照片時才顯示刪除按鈕
-                        if public_id and st.button("🗑️ 刪除", key=f"del_{tag_name}_{public_id}", use_container_width=True):
-                            try:
-                                # 呼叫 Cloudinary API 刪除照片
-                                cloudinary.uploader.destroy(public_id)
-                                # 強制更新快取並重新整理畫面
-                                get_random_image_by_tag(tag_name, force_refresh=True)
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"刪除失敗: {e}")
