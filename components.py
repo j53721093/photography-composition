@@ -151,10 +151,12 @@ def get_flip_card_html(front_text, back_image_urls=None, no_image_text="尚無�
         }}
         .card-image-fg {{
             position: relative;
-            max-width: 100%;
-            max-height: 100%;
+            max-width: 90%;
+            max-height: 90%;
             object-fit: contain;
             z-index: 2;
+            border: 3px solid rgba(255, 255, 255, 0.85);
+            border-radius: 4px;
             box-shadow: 0 4px 15px rgba(0,0,0,0.5);
         }}
         .no-image-text {{
