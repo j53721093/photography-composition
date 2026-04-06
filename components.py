@@ -11,6 +11,7 @@ def get_flip_card_html(front_text, back_image_urls=None, no_image_text="尚無�
     import uuid
     card_id = f"card_{uuid.uuid4().hex}"
     img_id = f"img_{uuid.uuid4().hex}"
+    bg_id = f"bg_{uuid.uuid4().hex}"
     
     urls = back_image_urls if back_image_urls else []
     
@@ -25,20 +26,31 @@ def get_flip_card_html(front_text, back_image_urls=None, no_image_text="尚無�
         </script>
         """
     else:
-        back_content = f'<img id="{img_id}" src="" alt="{front_text}" class="card-image" />'
+        back_content = f'''
+        <div class="image-wrapper">
+            <div id="{bg_id}" class="card-image-bg"></div>
+            <img id="{img_id}" src="" alt="{front_text}" class="card-image-fg" />
+        </div>
+        '''
         urls_json = json.dumps(urls)
         script_content = f"""
         <script>
             var urls = {urls_json};
             var imgElement = document.getElementById('{img_id}');
+            var bgElement = document.getElementById('{bg_id}');
             
             function getRandomUrl() {{
                 return urls[Math.floor(Math.random() * urls.length)];
             }}
             
+            function setImage(url) {{
+                imgElement.src = url;
+                bgElement.style.backgroundImage = "url('" + url + "')";
+            }}
+            
             // Set first random image on load
             if(urls.length > 0) {{
-                imgElement.src = getRandomUrl();
+                setImage(getRandomUrl());
             }}
 
             function flipCard(cardId) {{
@@ -49,7 +61,7 @@ def get_flip_card_html(front_text, back_image_urls=None, no_image_text="尚無�
                     card.classList.remove('is-flipped');
                     // Change the image while the back is facing away (halfway through the 0.6s animation)
                     setTimeout(function() {{
-                        imgElement.src = getRandomUrl();
+                        setImage(getRandomUrl());
                     }}, 300);
                 }} else {{
                     card.classList.add('is-flipped');
@@ -116,12 +128,34 @@ def get_flip_card_html(front_text, back_image_urls=None, no_image_text="尚無�
         }}
         .card-back {{
             transform: rotateY(180deg);
-            background: #fafafa;
+            background: #111;
+            position: relative;
         }}
-        .card-image {{
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
+        .image-wrapper {{
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border-radius: 12px;
+        }}
+        .card-image-bg {{
+            position: absolute;
+            top: -10%; left: -10%;
+            width: 120%; height: 120%;
+            background-size: cover;
+            background-position: center;
+            filter: blur(15px) brightness(0.6);
+            z-index: 1;
+        }}
+        .card-image-fg {{
+            position: relative;
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            z-index: 2;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
         }}
         .no-image-text {{
             color: #888;
